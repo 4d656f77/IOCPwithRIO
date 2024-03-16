@@ -90,6 +90,11 @@ int main()
 
 	// iocp »ý¼º
 	HANDLE hIOCP = ::CreateIoCompletionPort(INVALID_HANDLE_VALUE, 0, 0, 0);
+	if (hIOCP == NULL)
+	{
+		std::wcout << L"CreateIoCompletionPort failed with error: " << WSAGetLastError() << std::endl;
+		return 1;
+	}
 	OVERLAPPED overlapped = { 0 };
 
     RIO_NOTIFICATION_COMPLETION type;
@@ -176,6 +181,10 @@ int main()
 		std::cout << result->Length << std::endl;
 	}
 
+
+	delete pBuf;
+	delete RIOAddrbuffer;
+	delete[] RIObuffer;
 	return 0;
 }
 
