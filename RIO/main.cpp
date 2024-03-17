@@ -85,7 +85,7 @@ int main()
 	
 	// RIO initialization
 
-	std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+	
 
 
 	// iocp 생성
@@ -105,21 +105,33 @@ int main()
 	int result = WSAIoctl(listenSocket, SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER, &functionTableId, sizeof(GUID), (void**)&g_rio, sizeof(g_rio), &dwBytes, 0, 0);
 	
 	// 접속 받고
-	SOCKET g_socket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_REGISTERED_IO | WSA_FLAG_OVERLAPPED);
-	// SOCKADDR_IN localaddr = { 0 };
-	// int locallen = sizeof(SOCKADDR_IN);
-	// SOCKET g_socket = accept(listenSocket, (sockaddr*)&localaddr, &locallen);
+	//SOCKADDR_IN localaddr = { 0 };
+	//int locallen = sizeof(SOCKADDR_IN);
+	//SOCKET g_socket = WSAAccept(listenSocket, (sockaddr*)&localaddr, &locallen, NULL, NULL);
+	//if (g_socket == INVALID_SOCKET)
+	//{
+	//	std::wcout << L"accept failed" << std::endl;
+	//	return 1;
+	//}
 
-
+	SOCKET g_socket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_REGISTERED_IO);
 	LPFN_ACCEPTEX lpfnAcceptEx = NULL;
-	result = WSAIoctl(g_socket, SIO_GET_EXTENSION_FUNCTION_POINTER, &GuidAcceptEx, sizeof(GuidAcceptEx), &lpfnAcceptEx, sizeof(lpfnAcceptEx), &dwBytes, NULL, NULL);
+	result = WSAIoctl(listenSocket, SIO_GET_EXTENSION_FUNCTION_POINTER, &GuidAcceptEx, sizeof(GuidAcceptEx), &lpfnAcceptEx, sizeof(lpfnAcceptEx), &dwBytes, NULL, NULL);
 	
 
 	BOOL bRetVal = lpfnAcceptEx(listenSocket, g_socket, &ipaddr, 0, sizeof(SOCKADDR_IN) + 16, sizeof(SOCKADDR_IN) + 16, &dwBytes, &overlapped);
-
-
-
 	
+	std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+	
+	if (bRetVal == FALSE)
+	{
+		std::wcout << L"bRetVal failed with error: " << WSAGetLastError() << std::endl;
+	}
+
+	// CreateIoCompletionPort( (HANDLE)g_socket, hIOCP, (ULONG_PTR)&g_socket, 0);
+
+
+
     type.Type = RIO_IOCP_COMPLETION;
     type.Iocp.IocpHandle = hIOCP;
     type.Iocp.CompletionKey = &g_socket;
@@ -137,7 +149,7 @@ int main()
 	// This parameter is usually a small number for most applications.
 	// MaxReceiveDataBuffers 100
 	// The maximum number of receive data buffers on the socket.
-	RIO_RQ Rqueue = g_rio.RIOCreateRequestQueue(g_socket, 256, 1, 256, 1, Cqueue, Cqueue, nullptr);
+	RIO_RQ Rqueue = g_rio.RIOCreateRequestQueue(g_socket, 256, 1, 256, 1, Cqueue, Cqueue, NULL);
 	if (Rqueue == RIO_INVALID_RQ)
 	{
 		wprintf(L"RIO_INVALID_RQ: %u\n", WSAGetLastError());
@@ -146,20 +158,33 @@ int main()
 	// RIO 버퍼 등록
 	char* RIObuffer = new char[10000];
 	ZeroMemory(RIObuffer, sizeof(char)* 10000);
+	//strcpy_s(RIObuffer, 6, "test\n");
 	RIO_BUFFERID recv_bufferID = g_rio.RIORegisterBuffer(RIObuffer, 10000);
 	
+
 	// recv 걸기
-	RIO_BUF* RIOAddrbuffer = new RIO_BUF;
-	ZeroMemory(RIOAddrbuffer, sizeof(RIO_BUF));
+
 	RIO_BUF* pBuf = new RIO_BUF;
 	pBuf->BufferId = recv_bufferID;
 	pBuf->Offset = 0;
-	pBuf->Length = 10000;
-	int ret = g_rio.RIOReceive(Rqueue, pBuf, 1, 0, pBuf);
+	pBuf->Length = 10;
+
+	int ret = 0;
+	//for (int i = 0; i < 10; ++i)
+	//{
+	//	ret = g_rio.RIOSend(Rqueue, pBuf, 1, 0, pBuf);
+	//}
+	ret = g_rio.RIOReceive(Rqueue, pBuf, 1, 0, pBuf);
+	//ret = g_rio.RIOReceiveEx(Rqueue, pBuf, 1, nullptr, pAddrBuf, nullptr, 0, 0, pBuf);
 	if (ret == FALSE)
 	{
 		wprintf(L"RIOReceiveEx: %u\n", WSAGetLastError());
 	}
+
+	WSABUF wsaBuf = { 0 };
+	DWORD numberOfBytesRecvd = 0;
+	DWORD flags = 0;
+	// WSARecv(g_socket, &wsaBuf, 1, &numberOfBytesRecvd, &flags, &overlapped,nullptr);
 
 
 
@@ -178,12 +203,11 @@ int main()
 	{
 		RIO_BUF* result = (RIO_BUF*)results[i].RequestContext;
 
-		std::cout << result->Length << std::endl;
+		std::cout << RIObuffer << std::endl;
 	}
 
 
 	delete pBuf;
-	delete RIOAddrbuffer;
 	delete[] RIObuffer;
 	return 0;
 }
