@@ -114,13 +114,24 @@ int main()
 	//	return 1;
 	//}
 
-	SOCKET g_socket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_REGISTERED_IO);
+	SOCKET clinetsocket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_REGISTERED_IO | WSA_FLAG_OVERLAPPED);
+
+
+	
 	LPFN_ACCEPTEX lpfnAcceptEx = NULL;
 	result = WSAIoctl(listenSocket, SIO_GET_EXTENSION_FUNCTION_POINTER, &GuidAcceptEx, sizeof(GuidAcceptEx), &lpfnAcceptEx, sizeof(lpfnAcceptEx), &dwBytes, NULL, NULL);
 	
 
-	BOOL bRetVal = lpfnAcceptEx(listenSocket, g_socket, &ipaddr, 0, sizeof(SOCKADDR_IN) + 16, sizeof(SOCKADDR_IN) + 16, &dwBytes, &overlapped);
-	
+	BOOL bRetVal = lpfnAcceptEx(listenSocket, clinetsocket, nullptr, 0, sizeof(SOCKADDR_IN) + 16, sizeof(SOCKADDR_IN) + 16, &dwBytes, &overlapped);
+	//char iOptVal[100] = { 0 };
+	//int iOptLen = sizeof(sockaddr);
+	//iResult = setsockopt(g_socket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, iOptVal, iOptLen);
+	if (iResult == SOCKET_ERROR)
+	{
+
+		std::wcout << L"setsockopt error: " << WSAGetLastError() << std::endl;
+		return 0;
+	}
 	std::this_thread::sleep_for(std::chrono::milliseconds(5000));
 	
 	if (bRetVal == FALSE)
@@ -134,12 +145,13 @@ int main()
 
     type.Type = RIO_IOCP_COMPLETION;
     type.Iocp.IocpHandle = hIOCP;
-    type.Iocp.CompletionKey = &g_socket;
+    type.Iocp.CompletionKey = &clinetsocket;
     type.Iocp.Overlapped = &overlapped;
 
-    RIO_CQ Cqueue = g_rio.RIOCreateCompletionQueue(327680, &type);
-	
-    if (Cqueue == RIO_INVALID_CQ)
+    
+	RIO_CQ recvCQ = g_rio.RIOCreateCompletionQueue(1000, &type);
+	RIO_CQ sendCQ = g_rio.RIOCreateCompletionQueue(1000, &type);
+    if (recvCQ == RIO_INVALID_CQ || sendCQ == RIO_INVALID_CQ)
     {
         std::cout << "RIO_INVALID_CQ\n";
         return 0;
@@ -149,7 +161,7 @@ int main()
 	// This parameter is usually a small number for most applications.
 	// MaxReceiveDataBuffers 100
 	// The maximum number of receive data buffers on the socket.
-	RIO_RQ Rqueue = g_rio.RIOCreateRequestQueue(g_socket, 256, 1, 256, 1, Cqueue, Cqueue, NULL);
+	RIO_RQ Rqueue = g_rio.RIOCreateRequestQueue(clinetsocket, 256, 1, 256, 1, recvCQ, sendCQ, &clinetsocket);
 	if (Rqueue == RIO_INVALID_RQ)
 	{
 		wprintf(L"RIO_INVALID_RQ: %u\n", WSAGetLastError());
@@ -167,7 +179,14 @@ int main()
 	RIO_BUF* pBuf = new RIO_BUF;
 	pBuf->BufferId = recv_bufferID;
 	pBuf->Offset = 0;
-	pBuf->Length = 10;
+	pBuf->Length = 100;
+
+	//HANDLE h2 = CreateIoCompletionPort((HANDLE)g_socket, hIOCP, (ULONG_PTR)& g_socket, NULL);
+	//if (h2 != hIOCP)
+	//{
+	//	wprintf(L"CreateIoCompletionPort error: \n");
+	//	return 0;
+	//}
 
 	int ret = 0;
 	//for (int i = 0; i < 10; ++i)
@@ -181,6 +200,7 @@ int main()
 		wprintf(L"RIOReceiveEx: %u\n", WSAGetLastError());
 	}
 
+	INT notifyResult = g_rio.RIONotify(recvCQ);
 	WSABUF wsaBuf = { 0 };
 	DWORD numberOfBytesRecvd = 0;
 	DWORD flags = 0;
@@ -188,7 +208,7 @@ int main()
 
 
 
-	INT notifyResult = g_rio.RIONotify(Cqueue);
+	
 	// 완료 받기
 	RIORESULT results[10];
 	DWORD localnumberOfBytes = 0;
@@ -197,13 +217,17 @@ int main()
 	GetQueuedCompletionStatus(hIOCP, &localnumberOfBytes, &localcompletionKey, &localpOverlapped ,INFINITE);
 	ZeroMemory(results, sizeof(results));
 
-	ULONG numResults = g_rio.RIODequeueCompletion(Cqueue, results, 10);
-	notifyResult = g_rio.RIONotify(Cqueue);
+	ULONG numResults = g_rio.RIODequeueCompletion(recvCQ, results, 10);
+	notifyResult = g_rio.RIONotify(recvCQ);
 	for (ULONG i = 0; i < numResults; ++i)
 	{
-		RIO_BUF* result = (RIO_BUF*)results[i].RequestContext;
+		RIORESULT* result = &results[i];
 
-		std::cout << RIObuffer << std::endl;
+		std::cout << "Status : " << result->Status << std::endl;
+		std::cout << "socketContext : " << result->SocketContext << std::endl;
+		std::cout << "BytesTransferred : " << result->BytesTransferred << std::endl;
+		RIO_BUF* pResultBuf = (RIO_BUF*)result->RequestContext;
+		std::cout << "BufferId : " << pResultBuf->BufferId << std::endl;
 	}
 
 
